@@ -1,0 +1,106 @@
+image: python:3.9.0
+
+definitions:
+  scripts:
+    - script: &inc_patch
+      - git pull
+      - IN=$(cat VERSION)
+      - VERSION_PATCH=$(echo $IN | cut -d "." -f 3)
+      - VERSION_MINOR=$(echo $IN | cut -d "." -f 2)
+      - VERSION_MAJOR=$(echo $IN | cut -d "." -f 1)
+      - N_VERSION_PATCH=$(($VERSION_PATCH + 1))
+      - echo $VERSION_MAJOR'.'$VERSION_MINOR'.'$N_VERSION_PATCH > VERSION
+      - git add VERSION
+      - git commit -m "Release version $(cat VERSION)"
+      - git tag -a $(cat VERSION) -m "Release version $(cat VERSION) tag"
+      - git push origin master $(cat VERSION)
+      - curl -o rcc https://downloads.code.robocorp.com/rcc/latest/linux64/rcc
+      - chmod a+x rcc
+      - mkdir -p $HOME/.robocorp
+      - ./rcc cloud push -r $robot_id -w $workspaces_id --account $robocloud_credentials
+    - script: &inc_minor
+      - git pull
+      - IN=$(cat VERSION)
+      - VERSION_MINOR=$(echo $IN | cut -d "." -f 2)
+      - VERSION_MAJOR=$(echo $IN | cut -d "." -f 1)
+      - N_VERSION_MINOR=$(($VERSION_MINOR + 1))
+      - echo $VERSION_MAJOR'.'$N_VERSION_MINOR'.0' > VERSION
+      - git add VERSION
+      - git commit -m "Release version $(cat VERSION)"
+      - git tag -a $(cat VERSION) -m "Release version $(cat VERSION) tag"
+      - git push origin master $(cat VERSION)
+      - curl -o rcc https://downloads.code.robocorp.com/rcc/latest/linux64/rcc
+      - chmod a+x rcc
+      - mkdir -p $HOME/.robocorp
+      - ./rcc cloud push -r $robot_id -w $workspaces_id --account $robocloud_credentials
+    - script: &inc_major
+      - git pull
+      - IN=$(cat VERSION)
+      - VERSION_MAJOR=$(echo $IN | cut -d "." -f 1)
+      - N_VERSION_MAJOR=$(($VERSION_MAJOR + 1))
+      - echo $N_VERSION_MAJOR'.0.0' > VERSION
+      - git add VERSION
+      - git commit -m "Release version $(cat VERSION)"
+      - git tag -a $(cat VERSION) -m "Release version $(cat VERSION) tag"
+      - git push origin master $(cat VERSION)
+      - curl -o rcc https://downloads.code.robocorp.com/rcc/latest/linux64/rcc
+      - chmod a+x rcc
+      - mkdir -p $HOME/.robocorp
+      - ./rcc cloud push -r $robot_id -w $workspaces_id --account $robocloud_credentials
+
+
+pipelines:
+  branches:
+    dev:
+        - step:
+            name: Deploy to DEV workspace on Robocloud
+            deployment: Dev
+            caches:
+              - pip
+            script:
+              - curl -o rcc https://downloads.code.robocorp.com/rcc/latest/linux64/rcc
+              - chmod a+x rcc
+              - mkdir -p $HOME/.robocorp
+              - ./rcc cloud push -r $robot_id -w $workspaces_id --account $robocloud_credentials
+
+  custom:
+    standard-check:
+        - step:
+          name: Flake8, Bandit & Snyk style, security and vulnerability check
+          caches:
+            - pip
+          script:
+            - pip install flake8
+            - flake8
+            - pip install bandit
+            - bandit -r -lll .
+            - cat conda.yaml | sed 's/[- ]//g' | sed -e '1,/pip:/d' > requirements.txt
+            - pip install -r requirements.txt
+            - TEMP_URL="$(curl -s https://api.github.com/repos/snyk/snyk/releases/latest | grep "browser_download_url.*snyk-linux" | cut -d ':' -f 2,3 | awk '{print ; exit}' | sed s/\"//g | sed s/\ //g)"
+            - echo $TEMP_URL | wget -i -
+            - chmod a+x snyk-linux
+            - ./snyk-linux auth $SNYK_TOKEN
+            - ./snyk-linux test --command=python3 --file=requirements.txt
+    patch-deployment:
+        - step:
+            name: Deploy patch to PRD workspace on Robocloud
+            deployment: Prod
+            caches:
+              - pip
+            script: *inc_patch
+
+    minor-deployment:
+        - step:
+            name: Deploy minor change to PRD workspace on Robocloud
+            deployment: Prod
+            caches:
+              - pip
+            script: *inc_minor
+
+    major-deployment:
+        - step:
+            name: Deploy major change to PRD workspace on Robocloud
+            deployment: Prod
+            caches:
+              - pip
+            script: *inc_major

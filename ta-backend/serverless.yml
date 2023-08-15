@@ -1,0 +1,1048 @@
+service: ta
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  memorySize: 512
+  stage: ${self:custom.stage}
+  timeout: 30
+  versionFunctions: false
+  iamRoleStatements:
+    - Effect: 'Allow'
+      Action:
+        - ses:SendEmail
+        - s3:*
+        - sqs:*
+        - events:*
+        - lambda:*
+        - states:StartExecution
+      Resource: '*'
+  environment:
+    DB_NAME: ${env:DB_NAME, self:custom.db.name}
+    DB_USER: ${env:DB_USER, self:custom.db.user}
+    DB_PWD: ${env:DB_PWD, self:custom.db.pwd}
+    DB_HOST: ${env:DB_HOST, self:custom.db.host}
+    DB_PORT: ${env:DB_PORT, self:custom.db.port}
+    JWT_SECRET: ${env:JWT_SECRET, self:custom.jwt.secret}
+    STAGE: ${env:STAGE, self:custom.stage}
+    LOGS_QUEUE_URL: !Ref ActiveProcessLogs
+    BUCKET_NAME: ${self:custom.bucket.name}
+  vpc:
+    securityGroupIds:
+      - !GetAtt LambdasSecurityGroup.GroupId
+    subnetIds:
+      - Ref: PrivateSubnet1
+      - Ref: PrivateSubnet2
+
+plugins:
+  - serverless-webpack
+
+custom:
+  apiGatewayCaching:
+    enabled: false
+    ttlInSeconds: 0
+  webpack:
+    webpackConfig: 'webpack.config.ts'
+    includeModules:
+      forceExclude:
+        - aws-sdk
+      forceInclude:
+        - pg
+    packager: 'npm'
+
+  stage: ${opt:stage, env:STAGE}
+  keyPair: ${env:KEY_NAME, 'ec2tunnel-key-pair'}
+  region: ${opt:region, 'eu-west-1'}
+  stackName: ${self:service}-${self:custom.stage}
+  stackNameLogs: ${self:service}-${self:custom.stage}-logs
+  exports:
+    db:
+      credentials: ${self:custom.stackName}-db-credentials
+      name: ${self:custom.stackName}-db-name
+      user: ${self:custom.stackName}-db-user
+      pwd: ${self:custom.stackName}-db-pwd
+      host: ${self:custom.stackName}-db-host
+      port: ${self:custom.stackName}-db-port
+  secrets:
+    db:
+      credentials: ${self:custom.stackName}/DBCredentials
+      name: ${self:custom.stackName}/DBName
+      user: ${self:custom.stackName}/DBUser
+      pwd: ${self:custom.stackName}/DBPwd
+    jwt:
+      secret: ${self:custom.stackName}/JWTSecret
+  db:
+    name: '{{resolve:secretsmanager:${self:custom.secrets.db.name}:SecretString}}'
+    user: '{{resolve:secretsmanager:${self:custom.secrets.db.user}:SecretString}}'
+    pwd: '{{resolve:secretsmanager:${self:custom.secrets.db.pwd}:SecretString}}'
+    host: !GetAtt DBProxy.Endpoint
+    port: !GetAtt DB.Endpoint.Port
+  jwt:
+    secret: '{{resolve:secretsmanager:${self:custom.secrets.jwt.secret}:SecretString}}'
+  queue:
+    name: ${self:custom.stackName}
+  queue-logs:
+    name: ${self:custom.stackNameLogs}
+  bucket:
+    name: ${self:custom.stackName}-processes-bucket
+
+functions:
+  MigrateRDS:
+    handler: src/lambdas/triggers/migrate-rds/index.handler
+    timeout: 600
+    memorySize: 240
+
+  Authorization:
+    handler: src/lambdas/auth/authorization/index.handler
+    memorySize: 208
+
+  SignIn:
+    handler: src/lambdas/auth/sign-in/index.handler
+    memorySize: 260
+    events:
+      - http:
+          path: sign-in
+          method: post
+          cors: true
+
+  SignUp:
+    handler: src/lambdas/auth/sign-up/index.handler
+    memorySize: 260
+    events:
+      - http:
+          path: sign-up
+          method: post
+          cors: true
+
+  Verification:
+    handler: src/lambdas/auth/verify/index.handler
+    memorySize: 280
+    events:
+      - http:
+          path: verify
+          method: post
+          cors: true
+
+  Me:
+    handler: src/lambdas/auth/me/index.handler
+    memorySize: 160
+    events:
+      - http:
+          path: me
+          method: get
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  RefreshToken:
+    handler: src/lambdas/auth/refresh-token/index.handler
+    events:
+      - http:
+          path: refresh-token
+          method: post
+          cors: true
+
+  ProcessCreate:
+    handler: src/lambdas/process/create/index.handler
+    events:
+      - http:
+          path: processes
+          method: post
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  ProcessGet:
+    handler: src/lambdas/process/get/index.handler
+    events:
+      - http:
+          path: processes/{id}
+          method: get
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  ProcessUpdate:
+    handler: src/lambdas/process/update/index.handler
+    events:
+      - http:
+          path: processes/{id}
+          method: patch
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  ProcessDelete:
+    handler: src/lambdas/process/delete/index.handler
+    events:
+      - http:
+          path: processes/{id}
+          method: delete
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  ProcessLinkToOrganization:
+    handler: src/lambdas/process/link/index.handler
+    events:
+      - http:
+          path: processes/link
+          method: post
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  ProcessStart:
+    handler: src/lambdas/process/start/index.handler
+
+    memorySize: 240
+
+  ProcessChangeStatus:
+    handler: src/lambdas/process/change-status/index.handler
+    memorySize: 240
+    events:
+      - http:
+          path: processes/change-status
+          method: post
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  ProcessChangeStatusAWS:
+    handler: src/lambdas/process/change-status-aws/index.handler
+    memorySize: 240
+    events:
+      - eventBridge:
+          pattern:
+            source:
+              - aws.states
+            detail-type:
+              - Step Functions Execution Status Change
+
+  ProcessLogsRobocloudMonitorOne:
+    handler: src/lambdas/process/logs-robocloud-monitor-one/index.handler
+    memorySize: 240
+
+  ProcessLogsRobocloudMonitorAll:
+    handler: src/lambdas/process/logs-robocloud-monitor-all/index.handler
+    memorySize: 240
+    environment:
+      LOGS_ROBOCLOUD_MONITOR_ONE_LAMBDA_ARN: !GetAtt ProcessLogsRobocloudMonitorOneLambdaFunction.Arn
+
+  ProcessMonitorCron:
+    handler: src/lambdas/process/logs-robocloud-monitor-cron/index.handler
+    timeout: 61
+    memorySize: 240
+    environment:
+      LOGS_ROBOCLOUD_MONITOR_ALL_LAMBDA_ARN: !GetAtt ProcessLogsRobocloudMonitorAllLambdaFunction.Arn
+    events:
+      - schedule:
+          name: ${self:custom.stackName}-sub-minute-cron
+          rate: rate(1 minute)
+
+  ProcessHandleScheduled:
+    handler: src/lambdas/process/handle-scheduled/index.handler
+    memorySize: 240
+    environment:
+      START_PROCESS_LAMBDA_ARN: !GetAtt ProcessStartLambdaFunction.Arn
+
+  ProcessHandleRobocloudQueue:
+    handler: src/lambdas/process/handler-robocloud-queue/index.handler
+    memorySize: 280
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - ActiveProcessesQueue
+              - Arn
+          existing: true
+          batchSize: 1
+
+  ProcessLogsQueue:
+    handler: src/lambdas/process/logs-queue/index.handler
+    memorySize: 280
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - ActiveProcessLogs
+              - Arn
+          existing: true
+          batchSize: 1
+
+  ProcessHandleWebhook:
+    handler: src/lambdas/process/handle-robocloud-webhook/index.handler
+    memorySize: 280
+    environment:
+      PROCESS_HANDLE_QUEUE_ARN: !Ref ActiveProcessesQueue
+    events:
+      - http:
+          path: processes/robocloud/webhook
+          method: post
+          cors: true
+
+  OrganizationCreate:
+    handler: src/lambdas/organization/create/index.handler
+    events:
+      - http:
+          path: organizations
+          method: post
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  OrganizationGet:
+    handler: src/lambdas/organization/get/index.handler
+    events:
+      - http:
+          path: organizations/{id}
+          method: get
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  OrganizationUpdate:
+    handler: src/lambdas/organization/update/index.handler
+    events:
+      - http:
+          path: organizations/{id}
+          method: patch
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  OrganizationDelete:
+    handler: src/lambdas/organization/delete/index.handler
+    events:
+      - http:
+          path: organizations/{id}
+          method: delete
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  GetAvailableProcesses:
+    handler: src/lambdas/dashboard/get-available-processes/index.handler
+    memorySize: 220
+    events:
+      - http:
+          path: available-processes
+          method: get
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  DashboardStartProcess:
+    handler: src/lambdas/dashboard/start-process/index.handler
+    memorySize: 240
+    environment:
+      START_PROCESS_LAMBDA_ARN: !GetAtt ProcessStartLambdaFunction.Arn
+    events:
+      - http:
+          path: processes/start/{id}
+          method: post
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  DashboardScheduleProcess:
+    handler: src/lambdas/dashboard/schedule-process/index.handler
+    memorySize: 240
+    environment:
+      STATE_MACHINE_ARN: !Ref StateMachine
+    events:
+      - http:
+          path: processes/schedule/{id}
+          method: post
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  DashboardCreateRegularProcess:
+    handler: src/lambdas/dashboard/regular-process/create/index.handler
+    memorySize: 240
+    environment:
+      START_PROCESS_LAMBDA_ARN: !GetAtt ProcessStartLambdaFunction.Arn
+    events:
+      - http:
+          path: processes/regular
+          method: post
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  DashboardGetRegularProcesses:
+    handler: src/lambdas/dashboard/regular-process/get/index.handler
+    memorySize: 240
+    events:
+      - http:
+          path: processes/regular
+          method: get
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  DashboardDeleteRegularProcess:
+    handler: src/lambdas/dashboard/regular-process/delete/index.handler
+    memorySize: 240
+    environment:
+      START_PROCESS_LAMBDA_ARN: !GetAtt ProcessStartLambdaFunction.Arn
+    events:
+      - http:
+          path: processes/regular/{id}
+          method: delete
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  GetScheduledProcesses:
+    handler: src/lambdas/dashboard/get-scheduled-processes/index.handler
+    memorySize: 220
+    events:
+      - http:
+          path: scheduled-processes
+          method: get
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  CancelScheduledProcess:
+    handler: src/lambdas/dashboard/cancel-scheduled-process/index.handler
+    memorySize: 220
+    events:
+      - http:
+          path: scheduled-processes/cancel/{id}
+          method: post
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  GetActiveUserProcesses:
+    handler: src/lambdas/dashboard/get-active-processes/index.handler
+    memorySize: 240
+    events:
+      - http:
+          path: active-processes
+          method: get
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  GetFiltersForFinishedProcesses:
+    handler: src/lambdas/dashboard/get-filters-for-finished-processes/index.handler
+    memorySize: 220
+    events:
+      - http:
+          path: finished-processes/filters
+          method: get
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  GetFinishedUserProcesses:
+    handler: src/lambdas/dashboard/get-finished-processes/index.handler
+    memorySize: 220
+    events:
+      - http:
+          path: finished-processes
+          method: get
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  UsersProcessGet:
+    handler: src/lambdas/dashboard/get-process-info/index.handler
+    memorySize: 280
+    events:
+      - http:
+          path: user-processes/{id}
+          method: get
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+  GetProcessArtifactDownloadUrl:
+    handler: src/lambdas/dashboard/get-artifact-download-url/index.handler
+    memorySize: 200
+    events:
+      - http:
+          path: user-processes/download-artifact
+          method: post
+          cors: true
+          authorizer:
+            name: Authorization
+            resultTtlInSeconds: 0
+
+resources:
+  Resources:
+    # VPC
+    Vpc:
+      Type: AWS::EC2::VPC
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:custom.stackName}-VPC
+        EnableDnsHostnames: true
+        CidrBlock: 10.0.0.0/16
+        InstanceTenancy: default
+
+    VpcFlowLog:
+      Type: AWS::EC2::FlowLog
+      Properties:
+        DeliverLogsPermissionArn: !GetAtt VpcFlowLogRole.Arn
+        LogGroupName: !Ref VpcFlowLogGroup
+        ResourceId:
+          Ref: Vpc
+        ResourceType: VPC
+        Tags:
+          - Key: Name
+            Value: ${self:custom.stackName}-VpcFlowLog
+        TrafficType: ALL
+
+    VpcFlowLogRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: 'vpc-flow-logs.amazonaws.com'
+              Action: 'sts:AssumeRole'
+        Policies:
+          - PolicyName: 'flowlogs-policy'
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - 'logs:CreateLogStream'
+                    - 'logs:PutLogEvents'
+                    - 'logs:DescribeLogGroups'
+                    - 'logs:DescribeLogStreams'
+                  Resource: !GetAtt VpcFlowLogGroup.Arn
+
+    VpcFlowLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        RetentionInDays: 30
+
+    # DataBase
+    DB:
+      Type: AWS::RDS::DBInstance
+      Properties:
+        DBInstanceIdentifier: ${self:custom.stackName}-db
+        DBInstanceClass: ${env:DB_INSTANCE_CLASS, 'db.t3.micro'}
+        DBName: !Join
+          - ''
+          - - '{{resolve:secretsmanager:'
+            - !Ref DBName
+            - ':SecretString}}'
+        AllocatedStorage: 100
+        Engine: postgres
+        EngineVersion: '11.10'
+        BackupRetentionPeriod: 7
+        DeletionProtection: true
+        StorageEncrypted: true
+        MasterUsername: !Join
+          - ''
+          - - '{{resolve:secretsmanager:'
+            - !Ref DBUser
+            - ':SecretString}}'
+        MasterUserPassword: !Join
+          - ''
+          - - '{{resolve:secretsmanager:'
+            - !Ref DBPwd
+            - ':SecretString}}'
+        Port: 5432
+        StorageType: gp2
+        PubliclyAccessible: false
+        DBSubnetGroupName:
+          Ref: DBSubnetGroup
+        VPCSecurityGroups:
+          - !GetAtt DBSecurityGroup.GroupId
+
+    # DB Proxy
+    DBProxy:
+      Type: AWS::RDS::DBProxy
+      Properties:
+        Auth:
+          - { AuthScheme: SECRETS, SecretArn: !Ref DBCredentials, IAMAuth: DISABLED }
+        DBProxyName: ${self:custom.stackName}-DB-Proxy
+        EngineFamily: 'POSTGRESQL'
+        RoleArn: !GetAtt DBProxyIAMRole.Arn
+        VpcSecurityGroupIds:
+          - !GetAtt DBSecurityGroup.GroupId
+          - !GetAtt EC2SecurityGroup.GroupId
+        VpcSubnetIds:
+          - Ref: PrivateSubnet1
+          - Ref: PrivateSubnet2
+      DependsOn: DB
+    DBProxyTarget:
+      Type: AWS::RDS::DBProxyTargetGroup
+      DependsOn: DBProxy
+      Properties:
+        DBProxyName: ${self:custom.stackName}-DB-Proxy
+        TargetGroupName: default
+        DBInstanceIdentifiers:
+          - ${self:custom.stackName}-db
+    DBProxyIAMRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                AWS: '*'
+              Action: 'sts:AssumeRole'
+            - Effect: Allow
+              Principal:
+                AWS: '*'
+              Action: 'sts:AssumeRole'
+    DBProxyPolicies:
+      Type: AWS::IAM::Policy
+      Properties:
+        PolicyName: 'DBProxyPolicies'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetRandomPassword
+                - secretsmanager:CreateSecret
+                - secretsmanager:ListSecrets
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - secretsmanager:*
+              Resource:
+                - !Ref DBCredentials
+        Roles:
+          - Ref: DBProxyIAMRole
+
+    # DB Security Group
+    DBSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupName: ${self:custom.stackName}-DBSecurityGroup
+        GroupDescription: '[${self:custom.stackName}] DB security group'
+        VpcId:
+          Ref: Vpc
+
+    DBToDBSecurityGroupIngress:
+      Type: AWS::EC2::SecurityGroupIngress
+      Properties:
+        IpProtocol: -1
+        GroupId: !Ref DBSecurityGroup
+        SourceSecurityGroupId: !Ref DBSecurityGroup
+
+    EC2ToDBSecurityGroupIngress:
+      Type: AWS::EC2::SecurityGroupIngress
+      Properties:
+        FromPort: 5432
+        ToPort: 5432
+        IpProtocol: tcp
+        GroupId: !Ref DBSecurityGroup
+        SourceSecurityGroupId: !Ref EC2SecurityGroup
+
+    DBToEC2SecurityGroupEgress:
+      Type: AWS::EC2::SecurityGroupEgress
+      Properties:
+        IpProtocol: -1
+        GroupId: !Ref DBSecurityGroup
+        DestinationSecurityGroupId: !Ref EC2SecurityGroup
+
+    LambdasToDBSecurityGroupIngress:
+      Type: AWS::EC2::SecurityGroupIngress
+      Properties:
+        FromPort: 5432
+        ToPort: 5432
+        IpProtocol: tcp
+        GroupId: !Ref DBSecurityGroup
+        SourceSecurityGroupId: !Ref LambdasSecurityGroup
+
+    DBToLambdasSecurityGroupEgress:
+      Type: AWS::EC2::SecurityGroupEgress
+      Properties:
+        IpProtocol: -1
+        GroupId: !Ref DBSecurityGroup
+        DestinationSecurityGroupId: !Ref LambdasSecurityGroup
+
+    # Lambdas Security Group
+    LambdasSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupName: ${self:custom.stackName}-LambdasSecurityGroup
+        GroupDescription: '[${self:custom.stackName}] Lambdas security group'
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            CidrIp: 0.0.0.0/0
+            FromPort: 443
+            ToPort: 443
+        VpcId:
+          Ref: Vpc
+
+    # EC2 Security Group
+    EC2SecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupName: ${self:custom.stackName}-EC2SecurityGroup
+        GroupDescription: '[${self:custom.stackName}] EC2 security group'
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            CidrIp: 68.113.152.0/24
+            FromPort: 22
+            ToPort: 22
+            Description: 'Chris Williams'
+        VpcId:
+          Ref: Vpc
+
+    # EC2 Instance for connecting to DB
+    EC2Tunnel:
+      Type: AWS::EC2::Instance
+      Properties:
+        ImageId: 'ami-0947d2ba12ee1ff75'
+        InstanceType: t3.nano
+        KeyName: ${self:custom.keyPair}
+        Tags:
+          - Key: Name
+            Value: ${self:custom.stackName}-EC2Tunnel
+        NetworkInterfaces:
+          - AssociatePublicIpAddress: true
+            DeviceIndex: 0
+            SubnetId:
+              Ref: ServerlessPublicSubnetA
+            GroupSet:
+              - !GetAtt EC2SecurityGroup.GroupId
+      DependsOn: VPCGatewayAttachment
+
+    ElasticIp:
+      Type: AWS::EC2::EIP
+      Properties:
+        Domain: vpc
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:custom.stackName}-InternetGateway
+    VPCGatewayAttachment:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId:
+          Ref: Vpc
+        InternetGatewayId:
+          Ref: InternetGateway
+    NatGateway:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:custom.stackName}-NatGateway
+        AllocationId:
+          Fn::GetAtt:
+            - ElasticIp
+            - AllocationId
+        SubnetId:
+          Ref: ServerlessPublicSubnetA
+    ServerlessPublicSubnetA:
+      DependsOn: Vpc
+      Type: AWS::EC2::Subnet
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:custom.stackName}-PublicSubnetA
+        VpcId:
+          Ref: Vpc
+        AvailabilityZone: ${self:provider.region}a
+        CidrBlock: '10.0.2.0/24'
+    DefaultPrivateRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:custom.stackName}-PrivateRouteTable
+        VpcId:
+          Ref: Vpc
+    DefaultPrivateRoute:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId:
+          Ref: DefaultPrivateRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        NatGatewayId:
+          Ref: NatGateway
+    DefaultPublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:custom.stackName}-PublicRouteTable
+        VpcId:
+          Ref: Vpc
+    DefaultPublicRoute:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId:
+          Ref: DefaultPublicRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId:
+          Ref: InternetGateway
+    SubnetRouteTableAssociationPrivateA:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId:
+          Ref: PrivateSubnet1
+        RouteTableId:
+          Ref: DefaultPrivateRouteTable
+    SubnetRouteTableAssociationPrivateB:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId:
+          Ref: PrivateSubnet2
+        RouteTableId:
+          Ref: DefaultPrivateRouteTable
+    SubnetRouteTableAssociationPublicA:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId:
+          Ref: ServerlessPublicSubnetA
+        RouteTableId:
+          Ref: DefaultPublicRouteTable
+    DBSubnetGroup:
+      Type: AWS::RDS::DBSubnetGroup
+      Properties:
+        DBSubnetGroupName: ${self:custom.stackName}-PrivateDbSubnet
+        DBSubnetGroupDescription: PrivateDbSubnet
+        SubnetIds:
+          - Ref: PrivateSubnet1
+          - Ref: PrivateSubnet2
+    PrivateSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:custom.stackName}-PrivateSubnet1
+        AvailabilityZone: us-east-1a
+        CidrBlock: 10.0.64.0/18
+        VpcId:
+          Ref: Vpc
+    PrivateSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:custom.stackName}-PrivateSubnet2
+        AvailabilityZone: us-east-1b
+        CidrBlock: 10.0.128.0/18
+        VpcId:
+          Ref: Vpc
+
+    StatesExecutionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: 'Allow'
+              Principal:
+                AWS: '*'
+              Action: 'sts:AssumeRole'
+
+    StatesExecutionPolicies:
+      Type: AWS::IAM::Policy
+      Properties:
+        PolicyName: 'StatesExecutionPolicies'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: '*'
+        Roles:
+          - Ref: StatesExecutionRole
+
+    StateMachine:
+      Type: AWS::StepFunctions::StateMachine
+      Properties:
+        DefinitionString: !Join
+          - ''
+          - - '{'
+            - '"StartAt": "Delay",'
+            - '"States": {'
+            - '"Delay": {'
+            - '"Type": "Wait",'
+            - '"TimestampPath": "$.timestamp",'
+            - '"Next": "Invoke Lambda"'
+            - '},'
+            - '"Invoke Lambda": {'
+            - '"Type": "Task",'
+            - '"Resource": "'
+            - !GetAtt ProcessHandleScheduledLambdaFunction.Arn
+            - '",'
+            - '"Parameters": {'
+            - '"Payload": {'
+            - '"Input.$": "$.body"'
+            - '}'
+            - '},'
+            - '"End": true'
+            - '}'
+            - '}'
+            - '}'
+        RoleArn: !GetAtt StatesExecutionRole.Arn
+        StateMachineName: '${self:custom.stackName}-state-machine'
+
+    # Secrets
+    DBCredentials:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:custom.secrets.db.credentials}
+        Description: '[${self:custom.stackName}] DB credentials'
+        SecretString: !Join
+          - ''
+          - - '{"username":"'
+            - '{{resolve:secretsmanager:'
+            - !Ref DBUser
+            - ':SecretString}}",'
+            - '"password":"'
+            - '{{resolve:secretsmanager:'
+            - !Ref DBPwd
+            - ':SecretString}}",'
+            - '"engine":"postgres",'
+            - '"host":"'
+            - !GetAtt DB.Endpoint.Address
+            - '","port":"5432",'
+            - '"dbname":"'
+            - '{{resolve:secretsmanager:'
+            - !Ref DBName
+            - ':SecretString}}'
+            - '","dbInstanceIdentifier":"${self:custom.stackName}-db"}'
+    DBName:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:custom.secrets.db.name}
+        Description: '[${self:custom.stackName}] DB name'
+        GenerateSecretString:
+          ExcludePunctuation: true
+          ExcludeNumbers: true
+          RequireEachIncludedType: true
+    DBUser:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:custom.secrets.db.user}
+        Description: '[${self:custom.stackName}] DB user name'
+        GenerateSecretString:
+          ExcludePunctuation: true
+          ExcludeNumbers: true
+          RequireEachIncludedType: true
+    DBPwd:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:custom.secrets.db.pwd}
+        Description: '[${self:custom.stackName}] DB password'
+        GenerateSecretString:
+          ExcludePunctuation: true
+          RequireEachIncludedType: true
+    JWTSecret:
+      Type: AWS::SecretsManager::Secret
+      Properties:
+        Name: ${self:custom.secrets.jwt.secret}
+        Description: '[${self:custom.stackName}] JWT secret'
+        GenerateSecretString:
+          ExcludePunctuation: true
+          ExcludeNumbers: true
+          RequireEachIncludedType: true
+
+    # Migrations Trigger
+    MigrateRDSTrigger:
+      Type: AWS::CloudFormation::CustomResource
+      Properties:
+        ServiceToken: !GetAtt MigrateRDSLambdaFunction.Arn
+        InstanceId: ${sls:instanceId}
+      DependsOn: DBProxy
+
+    # SQS for processes
+    ActiveProcessesQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.queue.name}.fifo
+        FifoQueue: True
+        ContentBasedDeduplication: true
+        DelaySeconds: 0
+        KmsMasterKeyId: !Ref KmsKeyForSqs
+
+    # SQS for process logs
+    ActiveProcessLogs:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.queue-logs.name}.fifo
+        FifoQueue: True
+        ContentBasedDeduplication: true
+        DelaySeconds: 0
+        KmsMasterKeyId: !Ref KmsKeyForSqs
+
+    # S3 for processes
+    ProcessesBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.bucket.name}
+
+    # KMS for SQS encryption
+    KmsKeyForSqs:
+      Type: AWS::KMS::Key
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:custom.stackName}-KmsKeyForSqs
+        Description: Encrypts messages published to SQS
+        Enabled: true
+        KeyPolicy:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                AWS:
+                  'Fn::Join':
+                    - ''
+                    - - 'arn:aws:iam::'
+                      - Ref: 'AWS::AccountId'
+                      - ':root'
+              Action: 'kms:*'
+              Resource: '*'
+            - Effect: Allow
+              Principal:
+                AWS: '*'
+              Action:
+                - 'kms:Encrypt'
+                - 'kms:Decrypt'
+                - 'kms:ReEncrypt*'
+                - 'kms:GenerateDataKey*'
+                - 'kms:CreateGrant'
+                - 'kms:ListGrants'
+                - 'kms:DescribeKey'
+              Resource: '*'

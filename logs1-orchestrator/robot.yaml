@@ -1,0 +1,15 @@
+tasks:
+  Orchestrate Stage1:
+    command:
+      - python
+      - main.py
+      - bknce_stage_1
+
+condaConfigFile: conda.yaml
+artifactsDir: output
+PATH:
+  - .
+PYTHONPATH:
+  - .
+ignoreFiles:
+  - .botignore

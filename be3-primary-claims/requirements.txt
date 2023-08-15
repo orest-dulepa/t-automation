@@ -1,0 +1,3 @@
+rpaframework==7.*
+requests
+datetime

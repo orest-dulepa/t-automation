@@ -1,0 +1,10 @@
+rpaframework==10.*
+robotframework-browser
+ta-bitwarden-cli
+slackclient
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+requests
+datetime
+retry

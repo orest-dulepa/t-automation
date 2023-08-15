@@ -1,0 +1,9 @@
+rpaframework==10.*
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+requests
+datetime
+fitz
+PyMuPDF==1.16.14
+ta-bitwarden-cli

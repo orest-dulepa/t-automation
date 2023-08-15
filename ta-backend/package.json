@@ -1,0 +1,52 @@
+{
+  "name": "ta-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "deploy:dev": "sls deploy --stage development -v",
+    "deploy:prod": "sls deploy --stage production -v",
+    "migration:create": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:create -n",
+    "migration:run": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:run",
+    "migration:revert": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:revert"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@hapi/boom": "9.1.1",
+    "aws-sdk": "2.834.0",
+    "axios": "0.21.1",
+    "joi": "17.2.1",
+    "jsonwebtoken": "8.5.1",
+    "lodash": "4.17.21",
+    "middy": "0.36.0",
+    "moment": "2.29.1",
+    "pg": "8.5.1",
+    "reflect-metadata": "0.1.13",
+    "serverless": "2.55.0",
+    "source-map-support": "0.5.19",
+    "typeorm": "0.2.30"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.61",
+    "@types/joi": "14.3.4",
+    "@types/jsonwebtoken": "8.5.0",
+    "@types/lodash": "4.14.161",
+    "@types/node": "14.6.2",
+    "@types/serverless": "1.72.6",
+    "@types/terser-webpack-plugin": "5.0.4",
+    "@types/webpack": "4.41.21",
+    "@types/webpack-env": "1.15.2",
+    "@types/webpack-node-externals": "2.5.0",
+    "serverless-webpack": "5.3.4",
+    "terser-webpack-plugin": "5.1.4",
+    "ts-loader": "8.0.3",
+    "ts-node": "9.0.0",
+    "tsconfig-paths": "3.9.0",
+    "tsconfig-paths-webpack-plugin": "3.5.1",
+    "typescript": "4.0.2",
+    "webpack": "5.47.0",
+    "webpack-node-externals": "2.5.2"
+  }
+}

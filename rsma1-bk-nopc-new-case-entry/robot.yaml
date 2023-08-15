@@ -1,0 +1,18 @@
+tasks:
+  Open RDP:
+    shell: CMD /C schtasks /run /tn "Open local RDP"
+  Entrypoint:
+    command:
+      - python
+      - main.py
+  Close RDP:
+    shell: CMD /C schtasks /run /tn "Close local RDP"
+
+condaConfigFile: conda.yaml
+artifactsDir: output
+PATH:
+  - .
+PYTHONPATH:
+  - .
+ignoreFiles:
+    - .gitignore

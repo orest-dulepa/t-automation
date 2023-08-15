@@ -1,0 +1,46 @@
+image: python:3.9.0
+
+pipelines:
+  branches:
+    dev:
+        - step:
+            name: Bandit Security Check
+            caches:
+              - pip
+            script:
+              - pip install bandit
+              - bandit -r -lll .
+        - step:
+            name: Deploy to DEV workspace on Robocloud
+            deployment: Dev
+            caches:
+              - pip
+            script:
+              - curl -o rcc https://downloads.code.robocorp.com/rcc/latest/linux64/rcc
+              - chmod a+x rcc
+              - mkdir -p $HOME/.robocorp
+              - ./rcc cloud push -r $robot_id -w $workspaces_id --account $robocloud_credentials
+
+    master:
+        - step:
+            name: Bandit Security Check
+            caches:
+              - pip
+            script:
+              - echo "Excluding security tests:"
+              - echo " - B110 retry flow implementation with try-except-pass structure"
+              - echo " - B404 impot of subprocess module to use with bitwarden"
+              - echo " - B603 subprocess call to use bitwarden (shell=False parametr to run non built-in cli executables)"
+              - echo " - B607 subprocess call to use bitwarden (running path not root)"
+              - pip install bandit
+              - bandit -r -s B110,B404,B603,B607 .
+        - step:
+            name: Deploy to PRD workspace on Robocloud
+            deployment: Prod
+            caches:
+              - pip
+            script:
+              - curl -o rcc https://downloads.code.robocorp.com/rcc/latest/linux64/rcc
+              - chmod a+x rcc
+              - mkdir -p $HOME/.robocorp
+              - ./rcc cloud push -r $robot_id -w $workspaces_id --account $robocloud_credentials

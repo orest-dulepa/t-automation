@@ -1,0 +1,4 @@
+rpaframework==7.*
+requests
+datetime
+ta_bitwarden_cli

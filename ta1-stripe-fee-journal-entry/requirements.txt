@@ -1,0 +1,3 @@
+rpaframework==7.6.0
+pandas==1.2.2
+ta-bitwarden-cli

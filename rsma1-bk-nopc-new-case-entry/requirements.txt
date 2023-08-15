@@ -1,0 +1,7 @@
+rpaframework==10.*
+PyPDF2
+python-docx
+pytesseract
+pdf2image
+PyMuPDF
+ta_bitwarden_cli

@@ -1,0 +1,21 @@
+testrun/
+output/
+venv/
+.venv/
+test*
+temp/
+.rpa/
+.idea/
+.ipynb_checkpoints/
+.virtual_documents/
+*/.ipynb_checkpoints/*
+.vscode
+.DS_Store
+*.pyc
+*.zip
+__pycache__/
+# Compiled Python bytecode
+*.py[cod]
+
+# Log files
+*.log

@@ -1,0 +1,25 @@
+channels:
+  # Define conda channels here. 
+  - conda-forge
+
+dependencies:
+  # Define conda packages here. 
+  # If available, always prefer the conda version of a package, installation will be faster and more efficient.
+  # https://anaconda.org/search  
+  - python=3.7.5
+  - pip=20.1
+  - nodejs=14.15.4
+  - pip:
+    # Define pip packages here. 
+    # https://pypi.org/
+    - rpaframework==10.* # https://rpaframework.org/releasenotes.html
+    - robotframework-browser
+    - nodejs
+    - ta-bitwarden-cli
+    - slackclient
+    - google-api-python-client
+    - google-auth-httplib2
+    - google-auth-oauthlib
+    - retry
+rccPostInstall:
+  - rfbrowser init

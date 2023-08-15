@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "noImplicitReturns": true,
+    "strict": true,
+    "strictPropertyInitialization": false,
+    "allowSyntheticDefaultImports": true,
+    "module": "commonjs",
+    "target": "es2018",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noImplicitAny": true,
+    "sourceMap": true,
+    "lib": ["es2018"],
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": "src",
+    "paths": {
+      "@/*": ["*"]
+    }
+  },
+  "include": ["src/**/*", "webpack.config.ts"],
+  "exclude": ["node_modules", ".serverless", ".webpack", "_warmup", ".vscode"]
+}

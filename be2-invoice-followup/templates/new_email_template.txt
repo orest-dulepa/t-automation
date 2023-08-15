@@ -1,0 +1,10 @@
+Dear Valued Butterfly Effects Client,
+
+Attached you'll find your most recent invoice(s) from Butterfly Effects.
+
+{invoices}
+Please feel free to make a payment directly online https://butterflyeffects.com/bill-pay/. If you have any questions or concerns about this Invoice, please kindly respond to this email or contact our Billing Office at (888) 880-9270.
+
+Thanks,
+Butterfly Effects Billing Department
+888.880.9270
